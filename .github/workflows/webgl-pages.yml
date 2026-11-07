@@ -1,0 +1,79 @@
+# WebGL build přes GameCI a nasazení na GitHub Pages.
+# Spouští se po každém pushi na main (a ručně z záložky Actions).
+# Potřebné secrets: UNITY_LICENSE (obsah Unity_lic.ulf), UNITY_EMAIL, UNITY_PASSWORD.
+# Pages musí mít v Settings → Pages zdroj „GitHub Actions“.
+name: WebGL → GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Vždy dokončit jen nejnovější nasazení, starší rozběhnuté zrušit.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build WebGL
+    runs-on: ubuntu-latest
+    steps:
+      # Unity Docker image je velký – uvolníme místo na runneru.
+      - name: Uvolnit místo na disku
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      # Cache složky Library výrazně zrychluje další buildy.
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-WebGL-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-WebGL-
+
+      - name: Build (GameCI)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: WebGL
+          buildName: VandalSimulator
+
+      # Výstup GameCI: build/<targetPlatform>/<buildName>/ (index.html, Build/, TemplateData/)
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/WebGL/VandalSimulator
+
+  deploy:
+    name: Deploy na GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
